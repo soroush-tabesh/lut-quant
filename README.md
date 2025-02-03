@@ -11,6 +11,9 @@ A CUDA-accelerated lookup table quantization library for PyTorch.
 
 ## Installation
 
+Make sure that cmake and CUDA are installed and the environment variables `CUDA_HOME` and `LD_LIBRARY_PATH` are set.
+The library has been tested on Ubuntu 22.04 with CUDA 12.4.
+
 1. Install the requirements:
 
 ```bash

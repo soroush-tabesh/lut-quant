@@ -17,6 +17,15 @@ def lut_quantize(
     '''
     assert input.dtype == lut.dtype, "Input and lookup table must have the same dtype"
     assert input.device == lut.device, "Input and lookup table must be on the same device"
+    assert lut.ndim == 1, "Lookup table must be 1-dimensional"
+    assert len(lut) <= 256, "Lookup table must be at most 256 elements"
+    if not len(lut) in [4, 8, 16, 64, 256]:
+        padding = 512
+        for v in [4, 8, 16, 64, 256]:
+            if len(lut) <= v:
+                padding = v
+                break
+        lut = torch.cat([lut, torch.zeros(padding - len(lut), dtype=lut.dtype, device=lut.device) + lut[-1]])
     if input.dtype == torch.bfloat16:
         return lut_quant._CUDA.codebook_quantize(input, lut)
     elif input.dtype == torch.float32:

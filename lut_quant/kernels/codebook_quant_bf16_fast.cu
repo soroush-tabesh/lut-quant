@@ -185,10 +185,31 @@ __global__ void codebook_quantize_kernel_no_shared(
     }
 }
 
+// Helper function that uses a compile-time loop (via parameter pack expansion)
+// to dispatch the proper kernel based on the runtime codebook_size.
+template <int... Sizes>
+bool dispatch_codebook_quantize(
+    int codebook_size,
+    int num_blocks,
+    int threads_per_block,
+    const __nv_bfloat16* input,
+    __nv_bfloat16* output,
+    int num_elements,
+    const __nv_bfloat16* codebook,
+    std::integer_sequence<int, Sizes...>) {
+
+    // The fold expression will call the kernel launch for the matching size
+    bool dispatched = ((Sizes == codebook_size ? 
+                         (codebook_quantize_kernel_no_shared<Sizes>
+                             <<<num_blocks, threads_per_block>>>(
+                                 input, output, num_elements, codebook), true)
+                         : false) || ...);
+    return dispatched;
+}
+
 torch::Tensor codebook_quantize(torch::Tensor input, torch::Tensor codebook) {
     TORCH_CHECK(input.is_cuda(), "Input must be a CUDA tensor");
     TORCH_CHECK(codebook.is_cuda(), "Codebook must be a CUDA tensor");
-
     TORCH_CHECK(input.dtype() == torch::kBFloat16, "Input tensor must be of type BFloat16.");
     TORCH_CHECK(codebook.dtype() == torch::kBFloat16, "Codebook tensor must be of type BFloat16.");
 
@@ -202,26 +223,19 @@ torch::Tensor codebook_quantize(torch::Tensor input, torch::Tensor codebook) {
     const int total_elements_per_block = threads_per_block * elements_per_thread;
     const int num_blocks = (num_elements + total_elements_per_block - 1) / total_elements_per_block;
 
-    constexpr int supported_sizes[] = {4, 8, 16, 64, 256};
-    bool size_supported = false;
+    // Dispatch the kernel using a compile-time loop for the supported sizes
+    bool dispatched = dispatch_codebook_quantize(
+        codebook_size,
+        num_blocks,
+        threads_per_block,
+        reinterpret_cast<const __nv_bfloat16*>(input.data_ptr<at::BFloat16>()),
+        reinterpret_cast<__nv_bfloat16*>(output.data_ptr<at::BFloat16>()),
+        num_elements,
+        reinterpret_cast<const __nv_bfloat16*>(codebook.data_ptr<at::BFloat16>()),
+        std::integer_sequence<int, 4, 8, 16, 64, 256>());
     
-    #pragma unroll
-    for (int i = 0; i < sizeof(supported_sizes)/sizeof(supported_sizes[0]); i++) {
-        if (codebook_size == supported_sizes[i]) {
-            codebook_quantize_kernel_no_shared<supported_sizes[i]><<<num_blocks, threads_per_block>>>(
-                reinterpret_cast<const __nv_bfloat16*>(input.data_ptr<at::BFloat16>()),
-                reinterpret_cast<__nv_bfloat16*>(output.data_ptr<at::BFloat16>()),
-                num_elements,
-                reinterpret_cast<const __nv_bfloat16*>(codebook.data_ptr<at::BFloat16>())
-            );
-            size_supported = true;
-            break;
-        }
-    }
+    TORCH_CHECK(dispatched, "Unsupported codebook size. Supported sizes are 4, 8, 16, 64, and 256.");
 
-    if (!size_supported) {
-        TORCH_CHECK(false, "Unsupported codebook size. Supported sizes are 3, 4, 8, 16 and 64.");
-    }
     gpuErrchk(cudaPeekAtLastError());
     gpuErrchk(cudaDeviceSynchronize());
     return output;
