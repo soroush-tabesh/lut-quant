@@ -86,22 +86,25 @@ torch::Tensor codebook_quantize_f(torch::Tensor input, torch::Tensor codebook) {
     const int total_elements_per_block = threads_per_block * elements_per_thread;
     const int num_blocks = (num_elements + total_elements_per_block - 1) / total_elements_per_block;
 
-    if (codebook_size == 16) {
-        codebook_quantize_kernel_no_shared_f<16><<<num_blocks, threads_per_block>>>(
-            input.data_ptr<float>(),
-            output.data_ptr<float>(),
-            num_elements,
-            codebook.data_ptr<float>()
-        );
-    } else if (codebook_size == 64) {
-        codebook_quantize_kernel_no_shared_f<8><<<num_blocks, threads_per_block>>>(
-            input.data_ptr<float>(),
-            output.data_ptr<float>(),
-            num_elements,
-            codebook.data_ptr<float>()
-        );
-    } else {
-        TORCH_CHECK(false, "Unsupported codebook size. Supported sizes are 16 and 64.");
+    constexpr int supported_sizes[] = {4, 8, 16, 64, 256};
+    bool size_supported = false;
+    
+    #pragma unroll
+    for (int i = 0; i < sizeof(supported_sizes)/sizeof(supported_sizes[0]); i++) {
+        if (codebook_size == supported_sizes[i]) {
+            codebook_quantize_kernel_no_shared_f<supported_sizes[i]><<<num_blocks, threads_per_block>>>(
+                input.data_ptr<float>(),
+                output.data_ptr<float>(), 
+                num_elements,
+                codebook.data_ptr<float>()
+            );
+            size_supported = true;
+            break;
+        }
+    }
+
+    if (!size_supported) {
+        TORCH_CHECK(false, "Unsupported codebook size. Supported sizes are 3, 4, 8, 16 and 64.");
     }
 
     gpuErrchk(cudaPeekAtLastError());

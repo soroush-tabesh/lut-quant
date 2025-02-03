@@ -202,22 +202,25 @@ torch::Tensor codebook_quantize(torch::Tensor input, torch::Tensor codebook) {
     const int total_elements_per_block = threads_per_block * elements_per_thread;
     const int num_blocks = (num_elements + total_elements_per_block - 1) / total_elements_per_block;
 
-    if (codebook_size == 16) {
-        codebook_quantize_kernel_no_shared<16><<<num_blocks, threads_per_block>>>(
-            reinterpret_cast<const __nv_bfloat16*>(input.data_ptr<at::BFloat16>()),
-            reinterpret_cast<__nv_bfloat16*>(output.data_ptr<at::BFloat16>()),
-            num_elements,
-            reinterpret_cast<const __nv_bfloat16*>(codebook.data_ptr<at::BFloat16>())
-        );
-    } else if (codebook_size == 64) {
-        codebook_quantize_kernel_no_shared<64><<<num_blocks, threads_per_block>>>(
-            reinterpret_cast<const __nv_bfloat16*>(input.data_ptr<at::BFloat16>()),
-            reinterpret_cast<__nv_bfloat16*>(output.data_ptr<at::BFloat16>()),
-            num_elements,
-            reinterpret_cast<const __nv_bfloat16*>(codebook.data_ptr<at::BFloat16>())
-        );
-    } else {
-        TORCH_CHECK(false, "Unsupported codebook size. Supported sizes are 16 and 64.");
+    constexpr int supported_sizes[] = {4, 8, 16, 64, 256};
+    bool size_supported = false;
+    
+    #pragma unroll
+    for (int i = 0; i < sizeof(supported_sizes)/sizeof(supported_sizes[0]); i++) {
+        if (codebook_size == supported_sizes[i]) {
+            codebook_quantize_kernel_no_shared<supported_sizes[i]><<<num_blocks, threads_per_block>>>(
+                reinterpret_cast<const __nv_bfloat16*>(input.data_ptr<at::BFloat16>()),
+                reinterpret_cast<__nv_bfloat16*>(output.data_ptr<at::BFloat16>()),
+                num_elements,
+                reinterpret_cast<const __nv_bfloat16*>(codebook.data_ptr<at::BFloat16>())
+            );
+            size_supported = true;
+            break;
+        }
+    }
+
+    if (!size_supported) {
+        TORCH_CHECK(false, "Unsupported codebook size. Supported sizes are 3, 4, 8, 16 and 64.");
     }
     gpuErrchk(cudaPeekAtLastError());
     gpuErrchk(cudaDeviceSynchronize());
