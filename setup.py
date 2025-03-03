@@ -1,4 +1,4 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 from torch.utils.cpp_extension import BuildExtension, CUDAExtension
 import os
 import pathlib
@@ -34,6 +34,10 @@ if __name__ == '__main__':
     capability = torch.cuda.get_device_capability(device)
     assert capability[0] >= 8, f"CUDA capability must be >= 8.0, yours is {capability}"
 
+    # Get long description from README
+    with open(os.path.join(setup_dir, 'README.md'), encoding='utf-8') as f:
+        long_description = f.read()
+
     remove_unwanted_pytorch_nvcc_flags()
     setup(
         name='lut_quant',
@@ -58,4 +62,29 @@ if __name__ == '__main__':
             'build_ext': BuildExtension
         },
         version='0.1.0',
+        description='A CUDA-accelerated lookup table quantization library for PyTorch',
+        long_description=long_description,
+        long_description_content_type='text/markdown',
+        author='Soroush Tabesh',
+        author_email='soroushtabesh@gmail.com',
+        url='https://github.com/soroush-tabesh/lut-quant',
+        packages=find_packages(),
+        package_data={
+            'lut_quant': ['*.so', '*.pyd'],
+        },
+        python_requires='>=3.9',
+        install_requires=[
+            'torch>=2.5.0',
+        ],
+        classifiers=[
+            'Development Status :: 4 - Beta',
+            'Intended Audience :: Developers',
+            'Intended Audience :: Science/Research',
+            'License :: OSI Approved :: MIT License',
+            'Programming Language :: Python :: 3',
+            'Programming Language :: Python :: 3.9',
+            'Programming Language :: Python :: 3.10',
+            'Topic :: Scientific/Engineering',
+            'Topic :: Scientific/Engineering :: Artificial Intelligence',
+        ],
     )
